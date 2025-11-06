@@ -11,10 +11,10 @@ def compute_params(filename):
 
     Assumptions:
     - Circuit is series RLC.
-    - Voltage U = const.
+    - U = 1V
     - Data may not be sorted; sort by frequency.
     - Use closest measured points to I_max / sqrt(2) for bandwidth (no interpolation).
-    - Uncertainties: Delta I = 1e-6 A, Delta f = half the average spacing to neighbors.
+    - Uncertainties: Delta I dynamically from std near max, Delta f = half the average spacing to neighbors.
 
     Returns: R, Delta_R, L, Delta_L, C, Delta_C, f0, Delta_f, df_sorted
     """
@@ -25,7 +25,9 @@ def compute_params(filename):
 
     f = df['f / Hz'].values
     I_ma = df['I / mA'].values
-    phi_deg = df['phi / °'].values
+    # Flexible column search for phi (to handle variations like 'phi / °' or similar)
+    phi_col = [col for col in df.columns if 'phi' in col.lower()][0]
+    phi_deg = df[phi_col].values
     UR = df['UR / V'].values
     ULC = df['ULC / V'].values  # Assuming UX = ULC
 
@@ -46,10 +48,20 @@ def compute_params(filename):
     else:
         delta_f0 = 1.0  # Minimal uncertainty if single point
 
+    # Dynamic window_size: Based on number of points near resonance (e.g., where I > 0.9 * I_max)
+    near_res_mask = I_amp > 0.9 * I_max
+    num_near_points = np.sum(near_res_mask)
+    window_size = max(1, num_near_points // 2)  # At least 1, scaled to data density
+
+    # Dynamic delta_I_max: std of I near resonance (using dynamic window)
+    idx_start = max(0, idx_res - window_size)
+    idx_end = min(len(I_amp), idx_res + window_size + 1)
+    I_window = I_amp[idx_start:idx_end]
+    delta_I_max = np.std(I_window) if len(I_window) > 1 else 1e-6  # Fallback if single point
+
     # R = 1 / I_max (in ohms, since U=1V)
     R = 1.0 / I_max
-    delta_I_max = 1e-6  # Assumed uncertainty in I (A)
-    delta_R = (1.0 / I_max**2) * delta_I_max
+    delta_R = (1.0 / I_max**2) * delta_I_max  # Gaussian: |dR/dI_max| * delta_I_max
 
     # Target I for half-power: I_max / sqrt(2)
     I_target = I_max / np.sqrt(2)
@@ -88,15 +100,21 @@ def compute_params(filename):
     else:
         delta_f2 = 1.0
 
-    delta_Delta_f = np.sqrt(delta_f1**2 + delta_f2**2)
+    delta_Delta_f = np.sqrt(delta_f1**2 + delta_f2**2)  # Gaussian for Delta_f = f2 - f1
 
     # L = R / (2 pi Delta_f) in H
     pi = np.pi
-    L = R / (2 * pi * Delta_f)
+    k = 2 * pi * Delta_f
+    L = R / k
+    # Gaussian error propagation for L = R / k: delta_L / L = sqrt( (delta_R / R)^2 + (delta_k / k)^2 )
+    # Since k = 2*pi*Delta_f, delta_k / k = delta_Delta_f / Delta_f (2*pi constant, no error)
     delta_L = L * np.sqrt((delta_R / R)**2 + (delta_Delta_f / Delta_f)**2)
 
     # C = 1 / (4 pi^2 f0^2 L) in F
-    C = 1 / (4 * pi**2 * f0**2 * L)
+    m = 4 * pi**2 * f0**2 * L
+    C = 1 / m
+    # Gaussian for C = 1 / m: delta_C / C = delta_m / m
+    # m = const * f0^2 * L, delta_m / m = sqrt( (2 * delta_f0 / f0)^2 + (delta_L / L)^2 )
     delta_C = C * np.sqrt((delta_L / L)**2 + (2 * delta_f0 / f0)**2)
 
     return R, delta_R, L, delta_L, C, delta_C, f0, Delta_f, df
@@ -137,7 +155,9 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     suffix = "_theoretisch" if theoretical else ""
     f = df['f / Hz'].values
     I_ma = df['I / mA'].values
-    phi_deg = df['phi / °'].values
+    # Flexible column search for phi
+    phi_col = [col for col in df.columns if 'phi' in col.lower()][0]
+    phi_deg = df[phi_col].values
     UR = df['UR / V'].values
     ULC = df['ULC / V'].values  # UX = ULC
 
@@ -150,7 +170,7 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     I_real = I_ma * np.cos(-phi_rad)
     I_imag = I_ma * np.sin(-phi_rad)
 
-    # Set figure size for 1920x1080
+    # Set figure size for 1920x1080 (in inches, assuming 100 dpi)
     fig_width = 19.2
     fig_height = 10.8
 
