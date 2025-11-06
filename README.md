@@ -1,4 +1,5 @@
 # RLC-circuit
+This is an interactive Python file to use for the RLC circuit lab report at HSO
 
 ## What you need:
 
