@@ -150,7 +150,7 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     I_real = I_ma * np.cos(-phi_rad)
     I_imag = I_ma * np.sin(-phi_rad)
 
-    # Set figure size for 1920x1080 (in inches, assuming 100 dpi)
+    # Set figure size for 1920x1080
     fig_width = 19.2
     fig_height = 10.8
 
