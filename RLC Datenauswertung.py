@@ -11,7 +11,7 @@ def compute_params(filename):
 
     Assumptions:
     - Circuit is series RLC.
-    - U = 1V
+    - Voltage U = const.
     - Data may not be sorted; sort by frequency.
     - Use closest measured points to I_max / sqrt(2) for bandwidth (no interpolation).
     - Uncertainties: Delta I = 1e-6 A, Delta f = half the average spacing to neighbors.
