@@ -29,7 +29,7 @@ def compute_params(filename):
     phi_col = [col for col in df.columns if 'phi' in col.lower()][0]
     phi_deg = df[phi_col].values
     UR = df['UR / V'].values
-    ULC = df['ULC / V'].values  # Assuming UX = ULC
+    ULC = df['ULC / V'].values 
 
     I_amp = I_ma / 1000.0
 
@@ -159,7 +159,7 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     phi_col = [col for col in df.columns if 'phi' in col.lower()][0]
     phi_deg = df[phi_col].values
     UR = df['UR / V'].values
-    ULC = df['ULC / V'].values  # UX = ULC
+    ULC = df['ULC / V'].values
 
     I_amp = I_ma / 1000.0
     Z_mag = 1.0 / I_amp
