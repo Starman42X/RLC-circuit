@@ -157,7 +157,10 @@ def generate_theoretical_df(f_min, f_max, num_points, R_theo, L_theo, C_theo, U_
         'I / mA': I_ma,
         'phi / °': phi_deg,
         'UR / V': UR,
-        'ULC / V': ULC
+        'ULC / V': ULC,
+        'Re_Z': R_theo,
+        'Im_Z': X,
+        'Z_mag': Z_RLC
     })
     return df_theo
 
@@ -268,6 +271,40 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     ax.legend(loc='upper right')
     ax.grid(True)
     plt.savefig(f'{filename}{suffix}_phi.png')
+    plt.close()
+
+    # New: Plot |Z| vs. f
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    if theoretical:
+        Z_plot = df['Z_mag']
+    else:
+        U = np.sqrt(UR**2 + ULC**2)
+        Z_plot = U / I_amp
+    ax.plot(f, Z_plot, 'b-', label=r'$|Z|(f)$')
+    ax.set_xlabel(r'Frequenz $f$ [Hz]')
+    ax.set_ylabel(r'Impedanz $|Z|$ [$\Omega$]')
+    ax.set_title(fr'Verlauf der Impedanz $|Z|(f)$ für {filename} {suffix}')
+    ax.legend(loc='upper right')
+    ax.grid(True)
+    plt.savefig(f'{filename}{suffix}_Z_mag.png')
+    plt.close()
+
+    # New: Plot Re(Z) and Im(Z) vs. f
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+    if theoretical:
+        Re_Z = df['Re_Z']
+        Im_Z = df['Im_Z']
+    else:
+        Re_Z = UR / I_amp
+        Im_Z = (ULC / I_amp) * np.sign(phi_deg)
+    ax.plot(f, Re_Z, 'g-', label=r'Re$(Z)(f)$')
+    ax.plot(f, Im_Z, 'm-', label=r'Im$(Z)(f)$')
+    ax.set_xlabel(r'Frequenz $f$ [Hz]')
+    ax.set_ylabel(r'Widerstand [$\Omega$]')
+    ax.set_title(fr'Verlauf von Re$(Z)$ und Im$(Z)$ gegen $f$ für {filename} {suffix}')
+    ax.legend(loc='upper right')
+    ax.grid(True)
+    plt.savefig(f'{filename}{suffix}_Z_re_im.png')
     plt.close()
 
 if __name__ == "__main__":
