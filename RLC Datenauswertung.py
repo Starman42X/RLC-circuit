@@ -5,16 +5,18 @@ import matplotlib.cm as cm
 import os
 from tkinter import filedialog, simpledialog, Tk
 
-def compute_params(filename):
+def compute_params(filename, Ri=0):
     """
     Computes R, L, C with Gaussian error propagation from CSV data for series RLC circuit.
 
     Assumptions:
     - Circuit is series RLC.
-    - U = 1V
+    - U_gen = 1V (constant generator voltage)
     - Data may not be sorted; sort by frequency.
     - Use closest measured points to I_max / sqrt(2) for bandwidth (no interpolation).
     - Uncertainties: Delta I dynamically from std near max, Delta f = half the average spacing to neighbors.
+    - Ri: Internal resistance of generator, affects calculations if considered.
+    - R now computed as mean of UR / I over all points (no filtering).
 
     Returns: R, Delta_R, L, Delta_L, C, Delta_C, f0, Delta_f, df_sorted
     """
@@ -59,9 +61,13 @@ def compute_params(filename):
     I_window = I_amp[idx_start:idx_end]
     delta_I_max = np.std(I_window) if len(I_window) > 1 else 1e-6  # Fallback if single point
 
-    # R = 1 / I_max (in ohms, since U=1V)
-    R = 1.0 / I_max
-    delta_R = (1.0 / I_max**2) * delta_I_max  # Gaussian: |dR/dI_max| * delta_I_max
+    # Compute R as mean of UR / I over all points where I_amp != 0 (no threshold filtering)
+    valid_mask = I_amp != 0
+    if np.sum(valid_mask) == 0:
+        raise ValueError(f"Keine gültigen Punkte zur Mittelwertbildung von R in {filename}")
+    R_values = UR[valid_mask] / I_amp[valid_mask]
+    R = np.mean(R_values)
+    delta_R = np.std(R_values, ddof=1) / np.sqrt(len(R_values)) if len(R_values) > 1 else 1.0  # Standardfehler des Mittelwerts mit Sample-Std (ddof=1)
 
     # Target I for half-power: I_max / sqrt(2)
     I_target = I_max / np.sqrt(2)
@@ -102,13 +108,16 @@ def compute_params(filename):
 
     delta_Delta_f = np.sqrt(delta_f1**2 + delta_f2**2)  # Gaussian for Delta_f = f2 - f1
 
-    # L = R / (2 pi Delta_f) in H
+    # Effective damping resistance for bandwidth: R_eff = R + Ri
+    R_eff = R + Ri
+    # L ≈ R_eff / (2 pi Delta_f) in H
     pi = np.pi
     k = 2 * pi * Delta_f
-    L = R / k
-    # Gaussian error propagation for L = R / k: delta_L / L = sqrt( (delta_R / R)^2 + (delta_k / k)^2 )
-    # Since k = 2*pi*Delta_f, delta_k / k = delta_Delta_f / Delta_f (2*pi constant, no error)
-    delta_L = L * np.sqrt((delta_R / R)**2 + (delta_Delta_f / Delta_f)**2)
+    L = R_eff / k
+    # Gaussian error propagation for L = R_eff / k: delta_L / L = sqrt( (delta_R_eff / R_eff)^2 + (delta_k / k)^2 )
+    # delta_R_eff = delta_R (Ri constant)
+    # delta_k / k = delta_Delta_f / Delta_f
+    delta_L = L * np.sqrt((delta_R / R_eff)**2 + (delta_Delta_f / Delta_f)**2)
 
     # C = 1 / (4 pi^2 f0^2 L) in F
     m = 4 * pi**2 * f0**2 * L
@@ -119,9 +128,9 @@ def compute_params(filename):
 
     return R, delta_R, L, delta_L, C, delta_C, f0, Delta_f, df
 
-def generate_theoretical_df(f_min, f_max, num_points, R_theo, L_theo, C_theo, U=1.0):
+def generate_theoretical_df(f_min, f_max, num_points, R_theo, L_theo, C_theo, U_gen=1.0, Ri=0):
     """
-    Generate a DataFrame with theoretical values for the given parameters.
+    Generate a DataFrame with theoretical values for the given parameters, considering Ri.
     """
     # Use more points for smoother plot
     f_log = np.logspace(np.log10(f_min), np.log10(f_max), num_points // 2)
@@ -132,14 +141,15 @@ def generate_theoretical_df(f_min, f_max, num_points, R_theo, L_theo, C_theo, U=
 
     omega = 2 * np.pi * f
     X = omega * L_theo - 1 / (omega * C_theo)
-    Z_mag = np.sqrt(R_theo**2 + X**2)
-    phi_rad = np.arctan2(X, R_theo)
+    Z_RLC = np.sqrt(R_theo**2 + X**2)
+    Z_total = Ri + Z_RLC  # Total impedance including Ri
+    phi_rad = np.arctan2(X, R_theo + Ri)  # Phase considering effective R
     phi_deg = phi_rad * 180 / np.pi
 
-    I_amp = U / Z_mag
+    I_amp = U_gen / Z_total
     I_ma = I_amp * 1000
 
-    UR = I_amp * R_theo
+    UR = I_amp * R_theo  # Voltage over R only
     ULC = I_amp * np.abs(X)  # Magnitude of reactive voltage
 
     df_theo = pd.DataFrame({
@@ -162,7 +172,7 @@ def plot_data(df, filename, f0, Delta_f, R, L, C, theoretical=False):
     ULC = df['ULC / V'].values
 
     I_amp = I_ma / 1000.0
-    Z_mag = 1.0 / I_amp
+    Z_mag = 1.0 / I_amp  # This is Z_total
     phi_rad = phi_deg * np.pi / 180.0
     Z_real = Z_mag * np.cos(phi_rad)
     Z_imag = Z_mag * np.sin(phi_rad)
@@ -264,6 +274,9 @@ if __name__ == "__main__":
     root = Tk()
     root.withdraw()  # Hide the main window
 
+    consider_ri = simpledialog.askstring("Innenwiderstand berücksichtigen?", "y/n (default: n)")
+    Ri = 50.0 if consider_ri and consider_ri.lower() == 'y' else 0.0
+
     file1 = filedialog.askopenfilename(title="Wähle Datei für Kondensator 1")
     file2 = filedialog.askopenfilename(title="Wähle Datei für Kondensator 2")
 
@@ -283,33 +296,33 @@ if __name__ == "__main__":
     basename2 = os.path.splitext(os.path.basename(file2))[0].replace("csv ", "")
     
     print(f"Ergebnisse für C1 (nominal {C1_theo_uf:.2f} µF):")
-    R1, dR1, L1, dL1, C1, dC1, f01, Delta_f1, df1 = compute_params(file1)
+    R1, dR1, L1, dL1, C1, dC1, f01, Delta_f1, df1 = compute_params(file1, Ri)
     print(f"Resonanzfrequenz f0 = {f01:.2f} Hz")
     print(f"Bandbreite Δf = {Delta_f1:.2f} Hz")
-    print(f"R = {R1:.2f} ± {dR1:.2f} Ω")
+    print(f"R = {R1:.6f} ± {dR1:.6f} Ω")
     print(f"L = {L1:.6f} ± {dL1:.6f} H")
-    print(f"C1 = {C1 * 1e6:.2f} ± {dC1 * 1e6:.2f} μF")
+    print(f"C1 = {C1 * 1e6:.6f} ± {dC1 * 1e6:.6f} μF")
     plot_data(df1, basename1, f01, Delta_f1, R1, L1, C1)
     
     print(f"\nErgebnisse für C2 (nominal {C2_theo_uf:.2f} µF):")
-    R2, dR2, L2, dL2, C2, dC2, f02, Delta_f2, df2 = compute_params(file2)
+    R2, dR2, L2, dL2, C2, dC2, f02, Delta_f2, df2 = compute_params(file2, Ri)
     print(f"Resonanzfrequenz f0 = {f02:.2f} Hz")
     print(f"Bandbreite Δf = {Delta_f2:.2f} Hz")
-    print(f"R = {R2:.2f} ± {dR2:.2f} Ω")
+    print(f"R = {R2:.6f} ± {dR2:.6f} Ω")
     print(f"L = {L2:.6f} ± {dL2:.6f} H")
-    print(f"C2 = {C2 * 1e6:.2f} ± {dC2 * 1e6:.2f} μF")
+    print(f"C2 = {C2 * 1e6:.6f} ± {dC2 * 1e6:.6f} μF")
     plot_data(df2, basename2, f02, Delta_f2, R2, L2, C2)
     
     f_min1 = df1['f / Hz'].min()
     f_max1 = df1['f / Hz'].max()
-    df1_theo = generate_theoretical_df(f_min1, f_max1, 200, R_theo, L_theo, C1_theo, U_theo)
+    df1_theo = generate_theoretical_df(f_min1, f_max1, 200, R_theo, L_theo, C1_theo, U_theo, Ri)
     f01_theo = 1 / (2 * np.pi * np.sqrt(L_theo * C1_theo))
-    Delta_f1_theo = R_theo / (2 * np.pi * L_theo)
+    Delta_f1_theo = (R_theo + Ri) / (2 * np.pi * L_theo)
     plot_data(df1_theo, basename1, f01_theo, Delta_f1_theo, R_theo, L_theo, C1_theo, theoretical=True)
     
     f_min2 = df2['f / Hz'].min()
     f_max2 = df2['f / Hz'].max()
-    df2_theo = generate_theoretical_df(f_min2, f_max2, 200, R_theo, L_theo, C2_theo, U_theo)
+    df2_theo = generate_theoretical_df(f_min2, f_max2, 200, R_theo, L_theo, C2_theo, U_theo, Ri)
     f02_theo = 1 / (2 * np.pi * np.sqrt(L_theo * C2_theo))
-    Delta_f2_theo = R_theo / (2 * np.pi * L_theo)
+    Delta_f2_theo = (R_theo + Ri) / (2 * np.pi * L_theo)
     plot_data(df2_theo, basename2, f02_theo, Delta_f2_theo, R_theo, L_theo, C2_theo, theoretical=True)
