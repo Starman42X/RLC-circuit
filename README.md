@@ -10,3 +10,6 @@ f / Hz	I / mA	phi / °	UR / V	ULC / V
 
 ### Your component specifications:
 Your Voltage [V], your resistance [Ω], your inductance [H], your capacities [μF]
+
+
+please use RLC complex current.py as the RLC Datenauswertung.py is an older non complete version
